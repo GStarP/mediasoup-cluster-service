@@ -16,6 +16,7 @@ const logger = createWinstonLogger({
 if (IS_DEV) {
   logger.add(
     new transports.Console({
+      level: 'debug',
       format: format.combine(
         // set log.level to upper-case
         format((log) => {
