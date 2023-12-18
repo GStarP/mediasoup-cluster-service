@@ -1,5 +1,6 @@
 import { createLogger } from '@/common/logger';
 import { MQContext } from './types';
+import { toErrString } from '../error';
 
 const logger = createLogger(__filename);
 
@@ -9,7 +10,7 @@ export class RPCClient {
 
   replyQueue = '';
   nextCorrID = 0;
-  peMap = new Map<string, PromiseExec>();
+  promiseMap = new Map<string, PromiseExec>();
   timerMap = new Map<string, ReturnType<typeof setTimeout>>();
   consumerTag: string | null = null;
 
@@ -22,6 +23,7 @@ export class RPCClient {
     if (channel === null) {
       throw new Error('channel is null');
     }
+
     const { queue } = await channel.assertQueue('', {
       durable: false,
       autoDelete: true,
@@ -32,17 +34,23 @@ export class RPCClient {
     const { consumerTag } = await channel.consume(this.replyQueue, (msg) => {
       try {
         if (msg === null) {
-          logger.warn('rpc-client msg: null');
+          logger.error('rpc-client msg: null');
         } else {
           const corrID = msg.properties.correlationId;
-          const pe = this.peMap.get(corrID);
+          if (!corrID) {
+            logger.error('rpc-client no corrID');
+            return;
+          }
+          const pe = this.promiseMap.get(corrID);
           if (pe) {
             const timeout = this.timerMap.get(corrID);
             if (timeout) clearTimeout(timeout);
-            this.peMap.delete(corrID);
+
+            this.promiseMap.delete(corrID);
 
             const res = JSON.parse(msg.content.toString());
             logger.debug(`rpc-client res: ${msg.content.toString()}`);
+
             pe.resolve(res);
           } else {
             logger.warn(`rpc-client late reply: ${corrID}`);
@@ -64,14 +72,18 @@ export class RPCClient {
    * @param timeout rpc request timeout
    * @returns response
    */
-  async request<R>(
+  async request<M extends RPCServerMethods>(
     target: string,
-    method: string,
+    method: Extract<keyof M, string>,
     args: unknown[],
     timeout = 10 * 1000,
-  ): Promise<Res<R>> {
+  ): Promise<ReturnType<M[typeof method]>> {
     const channel = this.ctx.channel;
-    if (!this.ready || channel === null) {
+    if (channel === null) {
+      throw new Error('channel is null');
+    }
+
+    if (!this.ready) {
       throw new Error('rpc-client not ready');
     }
 
@@ -80,47 +92,49 @@ export class RPCClient {
       `rpc-client req: corrID=${corrID} target=${target} method=${method} args=${args}`,
     );
 
-    const promise = new Promise<Res<R>>((resolve, reject) => {
-      // save resolve reject for async return
-      this.peMap.set(corrID, { resolve, reject });
+    const promise = new Promise<ReturnType<M[typeof target]>>(
+      (resolve, reject) => {
+        // save resolve&reject for async return
+        this.promiseMap.set(corrID, { resolve, reject });
 
-      // request timeout process
-      this.timerMap.set(
-        corrID,
-        setTimeout(() => {
-          const pe = this.peMap.get(corrID);
-          this.peMap.delete(corrID);
-          this.timerMap.delete(corrID);
-          if (pe) {
-            logger.warn('rpc-client req timeout');
-            pe.reject({ code: 1 });
-          }
-        }, timeout),
-      );
+        // request timeout timer
+        this.timerMap.set(
+          corrID,
+          setTimeout(() => {
+            const pe = this.promiseMap.get(corrID);
+            this.promiseMap.delete(corrID);
+            this.timerMap.delete(corrID);
+            if (pe) {
+              logger.warn('rpc-client req timeout');
+              pe.reject(rpcTimeout());
+            }
+          }, timeout),
+        );
 
-      const req: Req = {
-        method,
-        args,
-      };
+        const req: RPCReq = {
+          method: method.toString(),
+          args,
+        };
 
-      const content = JSON.stringify(req);
-      channel.sendToQueue(target, Buffer.from(content), {
-        correlationId: corrID,
-        replyTo: this.replyQueue,
-      });
-      // TODO: 65536 is an arbitary value
-      this.nextCorrID = (this.nextCorrID + 1) % 65536;
-    });
+        const content = JSON.stringify(req);
+        channel.sendToQueue(target, Buffer.from(content), {
+          correlationId: corrID,
+          replyTo: this.replyQueue,
+        });
+        // TODO: 65536 is an arbitary value
+        this.nextCorrID = (this.nextCorrID + 1) % 65536;
+      },
+    );
     return promise;
   }
 
   async close() {
     try {
       // reject all promises
-      for (const pe of this.peMap.values()) {
-        pe.reject({ code: 2, data: 'rpc-client close' });
+      for (const pe of this.promiseMap.values()) {
+        pe.reject(rpcFail('rpc-client close'));
       }
-      this.peMap.clear();
+      this.promiseMap.clear();
       // clear all timers
       for (const timer of this.timerMap.values()) {
         clearTimeout(timer);
@@ -179,7 +193,7 @@ export class RPCServer {
             logger.warn(`rpc-server no replyQueue`);
             return;
           }
-          const req = JSON.parse(msg.content.toString()) as Req;
+          const req = JSON.parse(msg.content.toString()) as RPCReq;
           const methodFunc = methods[req.method];
           const curChannel = this.ctx.channel;
           if (curChannel === null) {
@@ -188,7 +202,7 @@ export class RPCServer {
           }
           if (!methodFunc) {
             logger.error(`rpc-server no method: ${req.method}`);
-            const res: Res = { code: 3 };
+            const res = rpcInvalidMethod();
             curChannel.sendToQueue(
               replyQueue,
               Buffer.from(JSON.stringify(res)),
@@ -206,7 +220,7 @@ export class RPCServer {
             );
           } catch (e) {
             logger.error(`rpc-server exec method: ${e}`);
-            const res: Res = { code: 1, data: `${e}` };
+            const res = rpcFail(toErrString(e));
             curChannel.sendToQueue(
               replyQueue,
               Buffer.from(JSON.stringify(res)),
@@ -234,18 +248,22 @@ export class RPCServer {
   }
 }
 
+///////////
+// Types //
+///////////
+
 type PromiseExec = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   resolve: (value: any) => void;
   reject: (reason?: unknown) => void;
 };
 
-type Req = {
+export type RPCReq = {
   method: string;
   args: unknown[];
 };
 
-type Res<R = unknown> =
+export type RPCRes<R = unknown> =
   | {
       code: 0;
       data: R;
@@ -259,5 +277,22 @@ type Res<R = unknown> =
 
 export type RPCServerMethods = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [k: string]: (...args: any[]) => Promise<Res<any>>;
+  [k: string]: (...args: any[]) => Promise<RPCRes<any>>;
 };
+
+///////////
+// Utils //
+///////////
+
+export function rpcSuccess<R>(data: R): RPCRes<R> {
+  return { code: 0, data };
+}
+export function rpcFail(msg: string): RPCRes {
+  return { code: 1, data: msg };
+}
+export function rpcTimeout(): RPCRes {
+  return { code: 2 };
+}
+export function rpcInvalidMethod(): RPCRes {
+  return { code: 3 };
+}

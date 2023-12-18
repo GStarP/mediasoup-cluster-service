@@ -4,6 +4,8 @@ import { createLogger } from '@/common/logger';
 import config from './config.json';
 import MQManager from '@/common/mq';
 import { sign } from 'jsonwebtoken';
+import { ClusterManager } from '@/cluster-manager';
+import type { ClusterMangerPRCMethods } from '@/cluster-manager/rpc';
 
 const logger = createLogger(__filename);
 
@@ -21,9 +23,9 @@ class APIGateway {
     await mqManager.connect();
     const rpcClient = await mqManager.initRPCClient();
 
-    this.server.post('/token', async (req, res) => {
-      const portalRes = await rpcClient.request<string>(
-        'rpc.clusterManager',
+    this.server.post('/token', async (_, res) => {
+      const portalRes = await rpcClient.request<ClusterMangerPRCMethods>(
+        ClusterManager.rpcServerName,
         'allocPortal',
         [],
       );
@@ -43,10 +45,9 @@ class APIGateway {
     });
 
     // handle all error here
-    const errorHandler: ErrorRequestHandler = (err, req, res, next) => {
+    const errorHandler: ErrorRequestHandler = (err, req, res) => {
       logger.error(err);
-      res.status(500).send('Something broke!');
-      next(err);
+      res.status(500).send(err);
     };
     this.server.use(errorHandler);
 

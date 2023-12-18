@@ -1,5 +1,7 @@
-import { Channel, Connection, connect } from 'amqplib';
-import { RPCClient, RPCServer, RPCServerMethods } from './rpc';
+import { connect } from 'amqplib';
+import type { Channel, Connection } from 'amqplib';
+import { RPCClient, RPCServer } from './rpc';
+import type { RPCServerMethods } from './rpc';
 
 interface MQConfig {
   url: string;
@@ -31,9 +33,9 @@ class MQManager {
     return this.rpcClient;
   }
 
-  async initRPCServer(
+  async initRPCServer<T extends RPCServerMethods>(
     name: string,
-    methods: RPCServerMethods,
+    methods: T,
   ): Promise<RPCServer> {
     this.rpcServer = new RPCServer(name, this);
     await this.rpcServer.init(methods);
