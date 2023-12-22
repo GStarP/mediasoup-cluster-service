@@ -1,2 +1,2 @@
-import '@/api-gateway';
+import '@/agents/media';
 import '@/cluster-manager';

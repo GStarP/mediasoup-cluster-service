@@ -2,6 +2,7 @@ import { connect } from 'amqplib';
 import type { Channel, Connection } from 'amqplib';
 import { RPCClient, RPCServer } from './rpc';
 import type { RPCServerMethods } from './rpc';
+import { TopicClient } from './topic';
 
 interface MQConfig {
   url: string;
@@ -17,6 +18,7 @@ class MQManager {
   // mq class
   private rpcClient: RPCClient | null = null;
   private rpcServer: RPCServer | null = null;
+  private topicClient: TopicClient | null = null;
 
   constructor(config: MQConfig) {
     this.config = config;
@@ -40,6 +42,12 @@ class MQManager {
     this.rpcServer = new RPCServer(name, this);
     await this.rpcServer.init(methods);
     return this.rpcServer;
+  }
+
+  async initTopicClient() {
+    this.topicClient = new TopicClient(this);
+    await this.topicClient.init();
+    return this.topicClient;
   }
 }
 

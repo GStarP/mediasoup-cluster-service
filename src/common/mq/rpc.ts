@@ -1,13 +1,12 @@
 import { createLogger } from '@/common/logger';
 import { MQContext } from './types';
-import { toErrString } from '../error';
+import { toErrString } from '@/common/error';
 
 const logger = createLogger(__filename);
 
 export class RPCClient {
   ctx: MQContext;
   ready = false;
-
   replyQueue = '';
   nextCorrID = 0;
   promiseMap = new Map<string, PromiseExec>();
@@ -153,8 +152,8 @@ export class RPCClient {
 }
 
 export class RPCServer {
-  name: string;
   ctx: MQContext;
+  name: string;
   ready = false;
 
   consumerTag: string | null = null;
