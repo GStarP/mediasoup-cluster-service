@@ -1,53 +1,64 @@
 import { connect } from 'amqplib';
 import type { Channel, Connection } from 'amqplib';
-import { RPCClient, RPCServer } from './rpc';
-import type { RPCServerMethods } from './rpc';
 import { TopicClient } from './topic';
+import { RPCClient } from './rpc/client';
+import { RPCServer } from './rpc/server';
+import { RPCServerMethods } from './rpc/types';
 
-interface MQConfig {
+interface MQManagerConfig {
   url: string;
   username?: string;
   password?: string;
 }
 
 class MQManager {
-  config: MQConfig;
   // mq basic
-  connection: Connection | null = null;
-  channel: Channel | null = null;
+  private _connection: Connection | null = null;
+  private _channel: Channel | null = null;
   // mq class
-  private rpcClient: RPCClient | null = null;
-  private rpcServer: RPCServer | null = null;
-  private topicClient: TopicClient | null = null;
+  private _rpcClient: RPCClient | null = null;
+  private _rpcServer: RPCServer | null = null;
+  private _topicClient: TopicClient | null = null;
 
-  constructor(config: MQConfig) {
-    this.config = config;
+  static async init(config: MQManagerConfig): Promise<MQManager> {
+    const manager = new MQManager();
+    await manager._connect(config);
+    return manager;
   }
 
-  async connect() {
-    this.connection = await connect(this.config);
-    this.channel = await this.connection.createChannel();
+  private async _connect(config: MQManagerConfig) {
+    if (this._channel) return;
+
+    this._connection = await connect(config);
+    this._channel = await this._connection.createChannel();
   }
 
-  async initRPCClient(): Promise<RPCClient> {
-    this.rpcClient = new RPCClient(this);
-    await this.rpcClient.init();
-    return this.rpcClient;
+  async rpcClient(): Promise<RPCClient> {
+    if (this._rpcClient) return this._rpcClient;
+
+    this._rpcClient = await RPCClient.init(this);
+    return this._rpcClient;
   }
 
-  async initRPCServer<T extends RPCServerMethods>(
+  async rpcServer<T extends RPCServerMethods>(
     name: string,
     methods: T,
   ): Promise<RPCServer> {
-    this.rpcServer = new RPCServer(name, this);
-    await this.rpcServer.init(methods);
-    return this.rpcServer;
+    if (this._rpcServer) return this._rpcServer;
+
+    this._rpcServer = await RPCServer.init(name, this, methods);
+    return this._rpcServer;
   }
 
-  async initTopicClient() {
-    this.topicClient = new TopicClient(this);
-    await this.topicClient.init();
-    return this.topicClient;
+  async topicClient() {
+    if (this._topicClient) return this._topicClient;
+
+    this._topicClient = await TopicClient.init(this);
+    return this._topicClient;
+  }
+
+  get channel() {
+    return this._channel;
   }
 }
 

@@ -4,9 +4,8 @@ import { ClusterWorker } from '@/common/cluster/worker';
 
 class MediaAgent {
   async init() {
-    const mqManager = new MQManager(config.mq);
-    await mqManager.connect();
-    const topicClient = await mqManager.initTopicClient();
+    const mqManager = await MQManager.init(config.mq);
+    const topicClient = await mqManager.topicClient();
     const clusterWorker = new ClusterWorker(topicClient);
     clusterWorker.joinCluster();
   }

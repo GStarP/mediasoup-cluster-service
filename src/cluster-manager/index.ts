@@ -1,7 +1,8 @@
+import type { WorkerLoad } from '@/common/cluster/types';
 import MQManager from '@/common/mq';
 import config from './config.json';
 import type { ClusterMangerPRCMethods } from './rpc';
-import { ClusterWorker, WorkerLoad } from '@/common/cluster/worker';
+import { ClusterWorker } from '@/common/cluster/worker';
 import { createLogger } from '@/common/logger';
 
 const logger = createLogger(__filename);
@@ -10,9 +11,8 @@ export class ClusterManager {
   static rpcServerName = 'rpc.cm';
 
   async init() {
-    const mqManager = new MQManager(config.mq);
-    await mqManager.connect();
-    await mqManager.initRPCServer<ClusterMangerPRCMethods>(
+    const mqManager = await MQManager.init(config.mq);
+    await mqManager.rpcServer<ClusterMangerPRCMethods>(
       ClusterManager.rpcServerName,
       {
         // TODO: portal uses load-balancing, not clustering
@@ -20,9 +20,8 @@ export class ClusterManager {
       },
     );
 
-    const topicClient = await mqManager.initTopicClient();
-    await topicClient.sub<WorkerLoad>(ClusterWorker.TOPIC, 'load', (msg) => {
-      const load = msg.data;
+    const topicClient = await mqManager.topicClient();
+    await topicClient.sub<WorkerLoad>(ClusterWorker.TOPIC, 'load', (load) => {
       logger.debug(`worker load: cpu=${load.cpu}%, mem=${load.mem}%`);
     });
     await topicClient.start();

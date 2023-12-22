@@ -2,10 +2,10 @@ import express, { ErrorRequestHandler } from 'express';
 import cors from 'cors';
 import { createLogger } from '@/common/logger';
 import config from './config.json';
-import MQManager from '@/common/mq';
 import { sign } from 'jsonwebtoken';
 import { ClusterManager } from '@/cluster-manager';
 import type { ClusterMangerPRCMethods } from '@/cluster-manager/rpc';
+import MQManager from '@/common/mq';
 
 const logger = createLogger(__filename);
 
@@ -19,9 +19,8 @@ class APIGateway {
   async init() {
     this.server.use(cors());
 
-    const mqManager = new MQManager(config.mq);
-    await mqManager.connect();
-    const rpcClient = await mqManager.initRPCClient();
+    const mqManager = await MQManager.init(config.mq);
+    const rpcClient = await mqManager.rpcClient();
 
     this.server.post('/token', async (_, res) => {
       const portalRes = await rpcClient.request<ClusterMangerPRCMethods>(

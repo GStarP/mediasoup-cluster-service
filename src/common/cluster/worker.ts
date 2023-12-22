@@ -1,14 +1,15 @@
-import { TopicClient } from '@/common/mq/topic';
 import { currentLoad, mem } from 'systeminformation';
 import { numberReserve } from '@/common/utils';
+import { TopicClient } from '@/common/mq/topic';
+import { WorkerLoad } from './types';
 
 export class ClusterWorker {
   static TOPIC = 'cluster.worker';
 
-  topClient: TopicClient;
+  private _topClient: TopicClient;
 
   constructor(topicClient: TopicClient) {
-    this.topClient = topicClient;
+    this._topClient = topicClient;
   }
 
   joinCluster() {
@@ -24,14 +25,9 @@ export class ClusterWorker {
       cpu: numberReserve(cpu * 100, 2),
       mem: numberReserve((used / total) * 100, 2),
     };
-    this.topClient.pub(ClusterWorker.TOPIC, {
+    this._topClient.pub(ClusterWorker.TOPIC, {
       type: 'load',
       data: load,
     });
   }
 }
-
-export type WorkerLoad = {
-  cpu: number;
-  mem: number;
-};
