@@ -1,15 +1,19 @@
-import { currentLoad, mem } from 'systeminformation';
-import { numberReserve } from '@/common/utils';
 import { TopicClient } from '@/common/mq/topic';
-import { WorkerLoad } from './types';
+import { GetLoadFunc } from './types';
 
 export class ClusterWorker {
-  static TOPIC = 'cluster.worker';
-
+  clusterName: string;
   private _topClient: TopicClient;
+  private _getLoad: GetLoadFunc;
 
-  constructor(topicClient: TopicClient) {
+  constructor(
+    clusterName: string,
+    topicClient: TopicClient,
+    getLoad: GetLoadFunc,
+  ) {
+    this.clusterName = clusterName;
     this._topClient = topicClient;
+    this._getLoad = getLoad;
   }
 
   joinCluster() {
@@ -19,15 +23,9 @@ export class ClusterWorker {
   }
 
   async reportLoad() {
-    const { currentLoad: cpu } = await currentLoad();
-    const { total, used } = await mem();
-    const load: WorkerLoad = {
-      cpu: numberReserve(cpu * 100, 2),
-      mem: numberReserve((used / total) * 100, 2),
-    };
-    this._topClient.pub(ClusterWorker.TOPIC, {
+    this._topClient.pub(this.clusterName, {
       type: 'load',
-      data: load,
+      data: await this._getLoad(),
     });
   }
 }

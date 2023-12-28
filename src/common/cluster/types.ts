@@ -1,4 +1,1 @@
-export type WorkerLoad = {
-  cpu: number;
-  mem: number;
-};
+export type GetLoadFunc = () => Promise<unknown>;

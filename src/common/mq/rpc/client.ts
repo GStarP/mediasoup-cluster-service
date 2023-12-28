@@ -1,10 +1,8 @@
-import { createLogger } from '@/common/logger';
+import { getLogger } from '@/common/logger';
 import { MQContext } from '../types';
 import type { RPCServerMethods, RPCReq } from './types';
 import { rpcTimeout, rpcFail } from './utils';
 import { toErrString } from '@/common/utils';
-
-const logger = createLogger(__filename);
 
 export class RPCClient {
   ready = false;
@@ -37,16 +35,16 @@ export class RPCClient {
       autoDelete: true,
     });
     this._replyQueue = queue;
-    logger.info(`queue: ${this._replyQueue}`);
+    getLogger()?.info(`queue: ${this._replyQueue}`);
 
     const { consumerTag } = await channel.consume(this._replyQueue, (msg) => {
       try {
         if (msg === null) {
-          logger.error('msg: null');
+          getLogger()?.error('msg: null');
         } else {
           const corrID = msg.properties.correlationId;
           if (!corrID) {
-            logger.error('no corrID');
+            getLogger()?.error('no corrID');
             return;
           }
           const pe = this._promiseMap.get(corrID);
@@ -57,15 +55,15 @@ export class RPCClient {
             this._promiseMap.delete(corrID);
 
             const res = JSON.parse(msg.content.toString());
-            logger.debug(`res: ${msg.content.toString()}`);
+            getLogger()?.debug(`res: ${msg.content.toString()}`);
 
             pe.resolve(res);
           } else {
-            logger.warn(`late reply: ${corrID}`);
+            getLogger()?.warn(`late reply: ${corrID}`);
           }
         }
       } catch (e) {
-        logger.error(`consume: ${toErrString(e)}`);
+        getLogger()?.error(`consume: ${toErrString(e)}`);
       }
     });
     this._consumerTag = consumerTag;
@@ -96,7 +94,7 @@ export class RPCClient {
     }
 
     const corrID = this._nextCorrID.toString();
-    logger.debug(
+    getLogger()?.debug(
       `req: corrID=${corrID} target=${target} method=${method} args=${args}`,
     );
 
@@ -113,7 +111,7 @@ export class RPCClient {
             this._promiseMap.delete(corrID);
             this._timerMap.delete(corrID);
             if (pe) {
-              logger.warn('req timeout');
+              getLogger()?.warn('req timeout');
               pe.reject(rpcTimeout());
             }
           }, timeout),
@@ -155,7 +153,7 @@ export class RPCClient {
         await channel.cancel(this._consumerTag);
       }
     } catch (e) {
-      logger.error(`close: ${toErrString(e)}`);
+      getLogger()?.error(`close: ${toErrString(e)}`);
     }
   }
 }

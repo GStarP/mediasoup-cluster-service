@@ -1,8 +1,6 @@
-import { createLogger } from '@/common/logger';
+import { getLogger } from '@/common/logger';
 import { MQContext } from '../types';
 import { safeStringify, toErrString } from '@/common/utils';
-
-const logger = createLogger(__filename);
 
 export class TopicClient {
   static EXCHANGE_NAME = 'topic';
@@ -43,32 +41,32 @@ export class TopicClient {
       },
     );
     this._exchange = exchange;
-    logger.info(`exchange: ${this._exchange}`);
+    getLogger()?.info(`exchange: ${this._exchange}`);
 
     const { queue } = await channel.assertQueue('', {
       durable: false,
       autoDelete: true,
     });
     this._queue = queue;
-    logger.info(`queue: ${this._queue}`);
+    getLogger()?.info(`queue: ${this._queue}`);
 
     this.ready = true;
   }
 
   async start() {
     if (!this.ready) {
-      logger.error('not ready');
+      getLogger()?.error('not ready');
       return;
     }
 
     const channel = this._ctx.channel;
     if (channel === null) {
-      logger.error('channel is null');
+      getLogger()?.error('channel is null');
       return;
     }
 
     if (this._consumerTag !== '') {
-      logger.error(`already consuming: consumerTag=${this._consumerTag}`);
+      getLogger()?.error(`already consuming: consumerTag=${this._consumerTag}`);
       return;
     }
 
@@ -77,9 +75,9 @@ export class TopicClient {
       (rawMsg) => {
         try {
           if (rawMsg === null) {
-            logger.warn('msg: null');
+            getLogger()?.warn('msg: null');
           } else {
-            logger.debug(`consume: msg=${rawMsg.content.toString()}`);
+            getLogger()?.debug(`consume: msg=${rawMsg.content.toString()}`);
             const msg = JSON.parse(rawMsg.content.toString()) as TopicMsg;
             this._callbacks.forEach((cb, type) => {
               if (type === msg.type) {
@@ -88,13 +86,13 @@ export class TopicClient {
             });
           }
         } catch (e) {
-          logger.error(`consume error: toErrString(e)`);
+          getLogger()?.error(`consume error: toErrString(e)`);
         }
       },
       { noAck: true },
     );
     this._consumerTag = consumerTag;
-    logger.info(`consume: consumerTag=${consumerTag}`);
+    getLogger()?.info(`consume: consumerTag=${consumerTag}`);
   }
 
   /**
@@ -109,11 +107,11 @@ export class TopicClient {
     // call with same params will change nothing in rqbbitmq
     const channel = this._ctx.channel;
     await channel.bindQueue(this._queue, TopicClient.EXCHANGE_NAME, topic);
-    logger.info(`bind queue=${this._queue} with routing key=${topic}`);
+    getLogger()?.info(`bind queue=${this._queue} with routing key=${topic}`);
 
     // TODO: only allow one callback for each `type`
     if (this._callbacks.has(type)) {
-      logger.warn(`previous callback remove: type=${type}`);
+      getLogger()?.warn(`previous callback remove: type=${type}`);
     }
     this._callbacks.set(type, callback);
     this._topics.add(topic);
@@ -123,7 +121,7 @@ export class TopicClient {
     if (this._ctx.channel === null) return;
     const channel = this._ctx.channel;
 
-    logger.debug(`pub: topic=${topic} msg=${safeStringify(msg)}`);
+    getLogger()?.debug(`pub: topic=${topic} msg=${safeStringify(msg)}`);
     try {
       channel.publish(
         TopicClient.EXCHANGE_NAME,
@@ -131,7 +129,7 @@ export class TopicClient {
         Buffer.from(JSON.stringify(msg)),
       );
     } catch (e) {
-      logger.error(`pub error: ${toErrString(e)}`);
+      getLogger()?.error(`pub error: ${toErrString(e)}`);
     }
   }
 
@@ -139,7 +137,7 @@ export class TopicClient {
     try {
       await this._ctx.channel?.cancel(this._consumerTag);
     } catch (e) {
-      logger.warn(`stop consuming error: ${toErrString(e)}`);
+      getLogger()?.warn(`stop consuming error: ${toErrString(e)}`);
     }
   }
 
@@ -155,7 +153,7 @@ export class TopicClient {
       );
       await this.stop();
     } catch (e) {
-      logger.warn(`close error: ${toErrString(e)}`);
+      getLogger()?.warn(`close error: ${toErrString(e)}`);
     }
   }
 }

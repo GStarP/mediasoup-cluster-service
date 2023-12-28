@@ -1,31 +1,60 @@
-import type { WorkerLoad } from '@/common/cluster/types';
 import MQManager from '@/common/mq';
 import config from './config.json';
-import type { ClusterMangerPRCMethods } from './rpc';
-import { ClusterWorker } from '@/common/cluster/worker';
+import {
+  type ClusterMangerPRCMethods,
+  CLUSTER_MANAGER_RPC_SERVER_NAME,
+} from './rpc.type';
 import { createLogger } from '@/common/logger';
+import { rpcFail, rpcSuccess } from '@/common/mq/rpc/utils';
+import { MediaAgentLoad } from './cluster.type';
+import { MEDIA_CLUSTER_NAME } from '@/media/cluster.type';
+import { v4 } from 'uuid';
 
-const logger = createLogger(__filename);
+async function runClusterManager() {
+  const uuid = `cluster-manager@${v4()}`;
+  const logger = createLogger(uuid);
 
-export class ClusterManager {
-  static rpcServerName = 'rpc.cm';
+  // media server name => media server load
+  const mediaAgentLoads: Map<string, MediaAgentLoad> = new Map();
 
-  async init() {
-    const mqManager = await MQManager.init(config.mq);
-    await mqManager.rpcServer<ClusterMangerPRCMethods>(
-      ClusterManager.rpcServerName,
-      {
-        // TODO: portal uses load-balancing, not clustering
-        allocPortal: async () => ({ code: 0, data: '127.0.0.1:8080' }),
+  /**
+   * MQ
+   */
+  const mqManager = await MQManager.init(config.mq);
+  await mqManager.rpcServer<ClusterMangerPRCMethods>(
+    CLUSTER_MANAGER_RPC_SERVER_NAME,
+    {
+      allocMedia: async (uid, type) => {
+        if (mediaAgentLoads.size === 0) {
+          return rpcFail('none media agent');
+        }
+        // TODO: temporarily use the first meida router
+        for (const [, load] of mediaAgentLoads) {
+          for (const worker of load.workers) {
+            if (worker.type === type) {
+              logger.info(
+                `alloc media: name=${load.name} routerId=${worker.routerId}`,
+              );
+              return rpcSuccess({
+                name: load.name,
+                routerId: worker.routerId,
+              });
+            }
+          }
+        }
+
+        return rpcFail('no available media agent');
       },
-    );
+    },
+  );
 
-    const topicClient = await mqManager.topicClient();
-    await topicClient.sub<WorkerLoad>(ClusterWorker.TOPIC, 'load', (load) => {
-      logger.debug(`worker load: cpu=${load.cpu}%, mem=${load.mem}%`);
-    });
-    await topicClient.start();
-  }
+  const topicClient = await mqManager.topicClient();
+  await topicClient.sub<MediaAgentLoad>(MEDIA_CLUSTER_NAME, 'load', (load) => {
+    mediaAgentLoads.set(load.name, load);
+  });
+  await topicClient.start();
+
+  logger.info('running');
 }
 
-new ClusterManager().init();
+runClusterManager();
